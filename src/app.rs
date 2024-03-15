@@ -10,7 +10,10 @@ enum Cell {
     Closed,         // Not opened yet
 }
 impl Cell {
-    fn is_clickable(&self) -> bool {
+    fn is_clickable(&self, inverted: &bool) -> bool {
+        if *inverted {
+            return self.is_secondary_clickable(&false);
+        }
         match *self {
             Self::Flag | Self::Mine | Self::Empty => false,
             _ => true,
@@ -22,9 +25,12 @@ impl Cell {
             _ => false,
         }
     }
-    fn is_secondary_clickable(&self) -> bool {
+    fn is_secondary_clickable(&self, inverted: &bool) -> bool {
+        if *inverted {
+            return self.is_clickable(&false);
+        }
         match *self {
-            Self::Flag | Self::Closed => true,
+            Self::Flag | Self::Closed | Self::Number(_) => true,
             _ => false,
         }
     }
@@ -345,91 +351,96 @@ fn run_game(ctx: &egui::Context, board: &mut Vec<Vec<Vec<Vec<Cell>>>>, back_boar
         });
     });
     egui::CentralPanel::default().show(ctx, |ui| {
-        egui::Grid::new("large-board").spacing(egui::vec2(10.0, 10.0)).show(ui, |ui| {
-            ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
-            for (fidx, first) in board.iter().enumerate() {
-                for (sidx, second) in first.iter().enumerate() {
-                    ui.group(|ui|{
-                        ui.vertical(|ui| {
-                            for (tidx, third) in second.iter().enumerate() {
-                                ui.horizontal(|ui| {
-                                    for (idx, elem) in third.iter().enumerate() {
-                                        let elem = if *alive || !mines_positions.contains(&(fidx, sidx, tidx, idx)) { elem } else { 
-                                            if let Cell::Flag = elem { elem } else { if !win { &Cell::Mine } else { &Cell::Flag } }
-                                        }; 
-                                        let btn = egui::Button::new(
-                                            match elem {
-                                                Cell::Flag => egui::RichText::new("F").color(egui::Color32::BLACK),
-                                                Cell::Mine => egui::RichText::new("X").color(egui::Color32::WHITE),
-                                                Cell::Number(num) => egui::RichText::new(num.to_string()),
-                                                _ => egui::RichText::new(" ".to_owned()),
-                                            }
-                                        ).min_size(egui::vec2(20.0, 20.0));
-                                        let btn = match elem {
-                                            Cell::Flag => if *alive || mines_positions.contains(&(fidx, sidx, tidx, idx)) { 
-                                                btn.fill(egui::Color32::WHITE) 
-                                            } 
-                                            else {
-                                                btn.fill(egui::Color32::LIGHT_RED)
-                                            },
-                                            Cell::Mine => btn.fill(egui::Color32::RED),
-                                            _ => btn,
-                                        };
-                                        
-                                        let btn = if let Some(pos) = *hover_display {
-                                            if is_neighbor(&pos, &(fidx, sidx, tidx, idx)) && elem.is_clickable() {
-                                                btn.fill(egui::Color32::DARK_GRAY)
-                                            }
-                                            else {
-                                                btn
-                                            }
-                                        } else { btn };
-
-                                        // Adding either enabled or disabled, depending on the cell
-                                        let btn = if let Cell::Empty = elem {
-                                            ui.add_enabled(false, btn)
-                                        }
-                                        else {
-                                            ui.add(btn)
-                                        };
-                                        
-                                        // Button neighbor highlighting
-                                        if btn.hovered() {
-                                            hover_at = Some((fidx, sidx, tidx, idx));
-                                        } 
-
-                                        // Passing the reaction further if the button was pressed
-                                        if elem.is_clickable() {
-                                            if btn.clicked() {
-                                                if !elem.is_number() {
-                                                    clicked_at = Some((fidx, sidx, tidx, idx));
+        egui::ScrollArea::both().show(ui, |ui| {
+            egui::Grid::new("large-board").spacing(egui::vec2(10.0, 10.0)).show(ui, |ui| {
+                ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
+                for (fidx, first) in board.iter().enumerate() {
+                    for (sidx, second) in first.iter().enumerate() {
+                        ui.group(|ui|{
+                            ui.vertical(|ui| {
+                                for (tidx, third) in second.iter().enumerate() {
+                                    ui.horizontal(|ui| {
+                                        for (idx, elem) in third.iter().enumerate() {
+                                            let elem = if *alive || !mines_positions.contains(&(fidx, sidx, tidx, idx)) { elem } else { 
+                                                if let Cell::Flag = elem { elem } else { if !win { &Cell::Mine } else { &Cell::Flag } }
+                                            }; 
+                                            let btn = egui::Button::new(
+                                                match elem {
+                                                    Cell::Flag => egui::RichText::new("F").color(egui::Color32::BLACK),
+                                                    Cell::Mine => egui::RichText::new("X").color(egui::Color32::WHITE),
+                                                    Cell::Number(num) => egui::RichText::new(num.to_string()),
+                                                    _ => egui::RichText::new(" ".to_owned()),
+                                                }
+                                            ).min_size(egui::vec2(20.0, 20.0));
+                                            let btn = match elem {
+                                                Cell::Flag => if *alive || mines_positions.contains(&(fidx, sidx, tidx, idx)) { 
+                                                    btn.fill(egui::Color32::WHITE) 
+                                                } 
+                                                else {
+                                                    btn.fill(egui::Color32::LIGHT_RED)
+                                                },
+                                                Cell::Mine => btn.fill(egui::Color32::RED),
+                                                _ => btn,
+                                            };
+                                            
+                                            let btn = if let Some(pos) = *hover_display {
+                                                if is_neighbor(&pos, &(fidx, sidx, tidx, idx)) && elem.is_clickable(&false) {
+                                                    btn.fill(egui::Color32::DARK_GRAY)
                                                 }
                                                 else {
-                                                    chord_at = Some((fidx, sidx, tidx, idx));
+                                                    btn
+                                                }
+                                            } else { btn };
+
+                                            // Adding either enabled or disabled, depending on the cell
+                                            let btn = if let Cell::Empty = elem {
+                                                ui.add_enabled(false, btn)
+                                            }
+                                            else {
+                                                ui.add(btn)
+                                            };
+                                            
+                                            // Button neighbor highlighting
+                                            if btn.hovered() {
+                                                hover_at = Some((fidx, sidx, tidx, idx));
+                                            } 
+
+                                            // Passing the reaction further if the button was pressed
+                                            if elem.is_clickable(&inverted_clicks) {
+                                                if btn.clicked() {
+                                                    if !elem.is_number() {
+                                                        clicked_at = Some((fidx, sidx, tidx, idx));
+                                                    }
+                                                    else {
+                                                        chord_at = Some((fidx, sidx, tidx, idx));
+                                                    }
+                                                }
+                                            }
+                                            if elem.is_secondary_clickable(&inverted_clicks) {
+                                                if btn.secondary_clicked() {
+                                                    if !elem.is_number() {
+                                                        secondary_at = Some((fidx, sidx, tidx, idx));
+                                                    }
+                                                    else {
+                                                        chord_at = Some((fidx, sidx, tidx, idx));
+                                                    }
                                                 }
                                             }
                                         }
-                                        if elem.is_secondary_clickable() {
-                                            if btn.secondary_clicked() {
-                                                    secondary_at = Some((fidx, sidx, tidx, idx));
-                                            }
-                                        }
-                                    }
-                                ui.end_row();
-                                });
-                            }
+                                    ui.end_row();
+                                    });
+                                }
+                            });
                         });
-                    });
+                    }
+                    ui.end_row();
                 }
-                ui.end_row();
-            }
+            });
         });
     });
     
     if *alive {
-        if *inverted_clicks {
-            (secondary_at, clicked_at) = (clicked_at, secondary_at);
-        }
+        if *inverted_clicks { (clicked_at, secondary_at) = (secondary_at, clicked_at); }
         mark_flags(board, &secondary_at, current_mines);
         reveal_cell(board, back_board, mines_positions, &clicked_at, alive, do_spread);
         chord_cell(board, back_board, mines_positions, &chord_at, alive, do_spread);
@@ -440,7 +451,7 @@ fn run_game(ctx: &egui::Context, board: &mut Vec<Vec<Vec<Vec<Cell>>>>, back_boar
 fn bottom_panel(ctx: &egui::Context, board_dimensions: &mut (usize, usize, usize, usize), mines_num: &mut u16, do_spread: &mut bool, inverted_mines: &mut bool) -> bool {
     let mut restart = false;
     egui::TopBottomPanel::bottom("settings").show(ctx, |ui| {
-        ui.checkbox(inverted_mines, egui::RichText::new("Click to flag").heading());
+    ui.checkbox(inverted_mines, egui::RichText::new("Click to flag").heading());
         ui.horizontal(|ui| {
             ui.label("Dimensions: ");
             let (mut x, mut y, mut z, mut w) = *board_dimensions;
