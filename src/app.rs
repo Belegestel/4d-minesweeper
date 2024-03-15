@@ -43,6 +43,8 @@ pub struct TemplateApp {
     current_mines: u16,
     total_mines: u16,
     spreading: bool,
+
+    inverted_mines_placing: bool
 }
 
 impl Default for TemplateApp {
@@ -59,6 +61,7 @@ impl Default for TemplateApp {
             current_mines: 0,
             total_mines: 10,
             spreading: true,
+            inverted_mines_placing: false,
         }
     }
 }
@@ -316,18 +319,20 @@ fn count_closed_cells(board: &Vec<Vec<Vec<Vec<Cell>>>>) -> u16 {
     total
 }
 
-fn run_game(ctx: &egui::Context, board: &mut Vec<Vec<Vec<Vec<Cell>>>>, back_board: &Vec<Vec<Vec<Vec<u8>>>>, mines_positions: &Vec<(usize, usize, usize, usize)>, hover_display: &mut Option<(usize, usize, usize, usize)>, alive: &mut bool, total_mines: &u16, current_mines: &mut u16, do_spread: &mut bool) {
+fn run_game(ctx: &egui::Context, board: &mut Vec<Vec<Vec<Vec<Cell>>>>, back_board: &Vec<Vec<Vec<Vec<u8>>>>, mines_positions: &Vec<(usize, usize, usize, usize)>, hover_display: &mut Option<(usize, usize, usize, usize)>, alive: &mut bool, total_mines: &u16, current_mines: &mut u16, do_spread: &mut bool, inverted_clicks: &bool) {
     let mut clicked_at: Option<(usize, usize, usize, usize)> = None;
     let mut secondary_at: Option<(usize, usize, usize, usize)> = None;
     let mut chord_at: Option<(usize, usize, usize, usize)> = None;
     let mut hover_at: Option<(usize, usize, usize, usize)> = None;
 
+    let mut win = false;
     egui::TopBottomPanel::top("top-main-panel").show(ctx, |ui| {
         println!("HERE");
         ui.horizontal(|ui| {
             let closed_cells = count_closed_cells(board);
             if *total_mines == closed_cells {
                 *alive = false;
+                win = true;
                 ui.label(egui::RichText::new("You won!").heading());
             }
             else {
@@ -350,7 +355,7 @@ fn run_game(ctx: &egui::Context, board: &mut Vec<Vec<Vec<Vec<Cell>>>>, back_boar
                                 ui.horizontal(|ui| {
                                     for (idx, elem) in third.iter().enumerate() {
                                         let elem = if *alive || !mines_positions.contains(&(fidx, sidx, tidx, idx)) { elem } else { 
-                                            if let Cell::Flag = elem { elem } else { &Cell::Mine }
+                                            if let Cell::Flag = elem { elem } else { if !win { &Cell::Mine } else { &Cell::Flag } }
                                         }; 
                                         let btn = egui::Button::new(
                                             match elem {
@@ -422,6 +427,9 @@ fn run_game(ctx: &egui::Context, board: &mut Vec<Vec<Vec<Vec<Cell>>>>, back_boar
     });
     
     if *alive {
+        if *inverted_clicks {
+            (secondary_at, clicked_at) = (clicked_at, secondary_at);
+        }
         mark_flags(board, &secondary_at, current_mines);
         reveal_cell(board, back_board, mines_positions, &clicked_at, alive, do_spread);
         chord_cell(board, back_board, mines_positions, &chord_at, alive, do_spread);
@@ -429,9 +437,10 @@ fn run_game(ctx: &egui::Context, board: &mut Vec<Vec<Vec<Vec<Cell>>>>, back_boar
     *hover_display = hover_at;
 }
 
-fn bottom_panel(ctx: &egui::Context, board_dimensions: &mut (usize, usize, usize, usize), mines_num: &mut u16, do_spread: &mut bool) -> bool {
+fn bottom_panel(ctx: &egui::Context, board_dimensions: &mut (usize, usize, usize, usize), mines_num: &mut u16, do_spread: &mut bool, inverted_mines: &mut bool) -> bool {
     let mut restart = false;
     egui::TopBottomPanel::bottom("settings").show(ctx, |ui| {
+        ui.checkbox(inverted_mines, egui::RichText::new("Click to flag").heading());
         ui.horizontal(|ui| {
             ui.label("Dimensions: ");
             let (mut x, mut y, mut z, mut w) = *board_dimensions;
@@ -445,6 +454,7 @@ fn bottom_panel(ctx: &egui::Context, board_dimensions: &mut (usize, usize, usize
             ui.add(wdrag);
             let size = x * y * z * w;
             *board_dimensions = (x, y, z, w);
+            ui.label(format!("Hypervolume: {}. ", size));
             if size >= 625 {
                 ui.label("Careful, large board size might lead to crashes! Consider turning off automatic spreading.");
             }
@@ -453,6 +463,10 @@ fn bottom_panel(ctx: &egui::Context, board_dimensions: &mut (usize, usize, usize
             ui.label("Mines: ");
             let drag = egui::DragValue::new(mines_num).clamp_range(1..=(board_dimensions.0 * board_dimensions.1 * board_dimensions.2 * board_dimensions.3));
             ui.add(drag);
+            let numerator: f64 = (*mines_num).try_into().unwrap();
+            let denominator: u32 = (board_dimensions.0 * board_dimensions.1 * board_dimensions.2 * board_dimensions.3).try_into().unwrap();
+            let denominator: f64 = denominator.try_into().unwrap();
+            ui.label(format!("Mine density: {:.3}", numerator/denominator));
         });
         if ui.button("Restart").clicked() {
             restart = true;
@@ -468,7 +482,7 @@ impl TemplateApp {
     /// Called once before the first frame.
     pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
         let mut res = Default::default();
-        let TemplateApp { ref mut board_dimensions, ref mut mines_num, ref mut mines_positions, ref mut back_board, ref mut board, current_hover: _, ref mut alive, ref mut current_mines, ref mut total_mines, spreading: _ } = res;
+        let TemplateApp { ref mut board_dimensions, ref mut mines_num, ref mut mines_positions, ref mut back_board, ref mut board, current_hover: _, ref mut alive, ref mut current_mines, ref mut total_mines, .. } = res;
         init_game(board, back_board, board_dimensions, mines_positions, alive, mines_num, current_mines, total_mines);
         *total_mines = 10;
         *current_mines = 0;
@@ -483,11 +497,11 @@ impl eframe::App for TemplateApp {
 
     /// Called each time the UI needs repainting, which may be many times per second.
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        let TemplateApp { ref mut board_dimensions, ref mut mines_num, ref mut mines_positions, ref mut back_board, ref mut board, ref mut current_hover, ref mut alive, ref mut current_mines, ref mut total_mines, ref mut spreading } = self;
-        let should_restart = bottom_panel(ctx, board_dimensions, mines_num, spreading);
+        let TemplateApp { ref mut board_dimensions, ref mut mines_num, ref mut mines_positions, ref mut back_board, ref mut board, ref mut current_hover, ref mut alive, ref mut current_mines, ref mut total_mines, ref mut spreading, ref mut inverted_mines_placing } = self;
+        let should_restart = bottom_panel(ctx, board_dimensions, mines_num, spreading, inverted_mines_placing);
         if should_restart {
             init_game(board, back_board, board_dimensions, mines_positions, alive, mines_num, total_mines, current_mines);
         }
-        run_game(ctx, board, back_board, mines_positions, current_hover, alive, total_mines, current_mines, spreading);
+        run_game(ctx, board, back_board, mines_positions, current_hover, alive, total_mines, current_mines, spreading, inverted_mines_placing);
     }
 }
