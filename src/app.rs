@@ -49,6 +49,8 @@ pub struct TemplateApp {
     current_mines: u16,
     total_mines: u16,
     spreading: bool,
+    is_exploded: bool,
+    cell_ui_size: f32,
 
     inverted_mines_placing: bool
 }
@@ -68,13 +70,16 @@ impl Default for TemplateApp {
             total_mines: 10,
             spreading: true,
             inverted_mines_placing: false,
+            is_exploded: false,
+            cell_ui_size: 20.0,
         }
     }
 }
 
 // PASTE START
 
-fn init_game(board: &mut Vec<Vec<Vec<Vec<Cell>>>>, back_board: &mut Vec<Vec<Vec<Vec<u8>>>>, dimensions: &(usize, usize, usize, usize), mines: &mut Vec<(usize, usize, usize, usize)>, alive: &mut bool, mines_num: &u16, current_mines: &mut u16, total_mines: &mut u16) {
+fn init_game(board: &mut Vec<Vec<Vec<Vec<Cell>>>>, back_board: &mut Vec<Vec<Vec<Vec<u8>>>>, dimensions: &(usize, usize, usize, usize), mines: &mut Vec<(usize, usize, usize, usize)>, alive: &mut bool, mines_num: &u16, current_mines: &mut u16, total_mines: &mut u16, is_exploded: &mut bool) {
+    *is_exploded = false;
     *alive = true;
     *current_mines = *mines_num;
     *total_mines = 0;
@@ -165,7 +170,7 @@ fn mark_flags(board: &mut Vec<Vec<Vec<Vec<Cell>>>>, position: &Option<(usize, us
     }
 }
 
-fn spread_cells(board: &mut Vec<Vec<Vec<Vec<Cell>>>>, back_board: &Vec<Vec<Vec<Vec<u8>>>>, mines: &Vec<(usize, usize, usize, usize)>, position: &Option<(usize, usize, usize, usize)>, alive: &mut bool) {
+fn spread_cells(board: &mut Vec<Vec<Vec<Vec<Cell>>>>, back_board: &Vec<Vec<Vec<Vec<u8>>>>, mines: &Vec<(usize, usize, usize, usize)>, position: &Option<(usize, usize, usize, usize)>, alive: &mut bool, is_exploded: &mut bool) {
     if let Some((x, y, z, w)) = *position {
         // println!("IN {:?} {:?}", board[x][y][z][w], (x, y, z, w));
         if let Cell::Empty = board[x][y][z][w] {
@@ -194,7 +199,7 @@ fn spread_cells(board: &mut Vec<Vec<Vec<Vec<Cell>>>>, back_board: &Vec<Vec<Vec<V
                             let neww: usize = neww.try_into().unwrap();
                             if let Cell::Closed = board[newx][newy][newz][neww] {
                                 // println!("It is indeed closed");
-                                reveal_cell(board, back_board, mines, &Some((newx, newy, newz, neww)), alive, &true);
+                                reveal_cell(board, back_board, mines, &Some((newx, newy, newz, neww)), alive, &true, is_exploded);
                             }
                         }
                     }
@@ -204,7 +209,7 @@ fn spread_cells(board: &mut Vec<Vec<Vec<Vec<Cell>>>>, back_board: &Vec<Vec<Vec<V
     }
 }
 
-fn chord_cell(board: &mut Vec<Vec<Vec<Vec<Cell>>>>, back_board: &Vec<Vec<Vec<Vec<u8>>>>, mines: &Vec<(usize, usize, usize, usize)>, position: &Option<(usize, usize, usize, usize)>, alive: &mut bool, do_spread: &bool) {
+fn chord_cell(board: &mut Vec<Vec<Vec<Vec<Cell>>>>, back_board: &Vec<Vec<Vec<Vec<u8>>>>, mines: &Vec<(usize, usize, usize, usize)>, position: &Option<(usize, usize, usize, usize)>, alive: &mut bool, do_spread: &bool, is_exploded: &mut bool) {
     if let Some((x, y, z, w)) = *position {
         let dimensions = (board.len(), board[0].len(), board[0][0].len(), board[0][0][0].len());
         let mut total_flags = 0;
@@ -255,7 +260,7 @@ fn chord_cell(board: &mut Vec<Vec<Vec<Vec<Cell>>>>, back_board: &Vec<Vec<Vec<Vec
                             let neww: usize = (w + dw).try_into().unwrap();
                             
                             let is_flag = if let Cell::Flag = board[newx][newy][newz][neww] { true } else { false };
-                            if !is_flag { reveal_cell(board, back_board, mines, &Some((newx, newy, newz, neww)), alive, do_spread); }
+                            if !is_flag { reveal_cell(board, back_board, mines, &Some((newx, newy, newz, neww)), alive, do_spread, is_exploded); }
                         }
                     }
                 }
@@ -264,11 +269,12 @@ fn chord_cell(board: &mut Vec<Vec<Vec<Vec<Cell>>>>, back_board: &Vec<Vec<Vec<Vec
     }
 }
 
-fn reveal_cell(board: &mut Vec<Vec<Vec<Vec<Cell>>>>, back_board: &Vec<Vec<Vec<Vec<u8>>>>, mines: &Vec<(usize, usize, usize, usize)>, position: &Option<(usize, usize, usize, usize)>, alive: &mut bool, do_spread: &bool) {
+fn reveal_cell(board: &mut Vec<Vec<Vec<Vec<Cell>>>>, back_board: &Vec<Vec<Vec<Vec<u8>>>>, mines: &Vec<(usize, usize, usize, usize)>, position: &Option<(usize, usize, usize, usize)>, alive: &mut bool, do_spread: &bool, is_exploded: &mut bool) {
     let mut spread = false;
     if let Some((x, y, z, w)) = *position {
         if mines.contains(&(x, y, z, w)) {
             board[x][y][z][w] = Cell::Mine;
+            *is_exploded = true;
             *alive = false;
         }
         else {
@@ -280,7 +286,7 @@ fn reveal_cell(board: &mut Vec<Vec<Vec<Vec<Cell>>>>, back_board: &Vec<Vec<Vec<Ve
                 Cell::Empty
             };
         }
-        if spread && *do_spread { spread_cells(board, back_board, mines, position, alive); }
+        if spread && *do_spread { spread_cells(board, back_board, mines, position, alive, is_exploded); }
     }
 }
 
@@ -315,7 +321,7 @@ fn count_closed_cells(board: &Vec<Vec<Vec<Vec<Cell>>>>) -> u16 {
             for c in b.iter() {
                 for d in c.iter() {
                     match d {
-                        Cell::Flag | Cell::Closed => total += 1,
+                        Cell::Flag | Cell::Closed | Cell::Mine => total += 1,
                         _ => {}
                     };
                 }
@@ -325,7 +331,7 @@ fn count_closed_cells(board: &Vec<Vec<Vec<Vec<Cell>>>>) -> u16 {
     total
 }
 
-fn run_game(ctx: &egui::Context, board: &mut Vec<Vec<Vec<Vec<Cell>>>>, back_board: &Vec<Vec<Vec<Vec<u8>>>>, mines_positions: &Vec<(usize, usize, usize, usize)>, hover_display: &mut Option<(usize, usize, usize, usize)>, alive: &mut bool, total_mines: &u16, current_mines: &mut u16, do_spread: &mut bool, inverted_clicks: &bool) {
+fn run_game(ctx: &egui::Context, board: &mut Vec<Vec<Vec<Vec<Cell>>>>, back_board: &Vec<Vec<Vec<Vec<u8>>>>, mines_positions: &Vec<(usize, usize, usize, usize)>, hover_display: &mut Option<(usize, usize, usize, usize)>, alive: &mut bool, total_mines: &u16, current_mines: &mut u16, do_spread: &mut bool, inverted_clicks: &bool, is_exploded: &mut bool, cell_ui_size: &f32) {
     let mut clicked_at: Option<(usize, usize, usize, usize)> = None;
     let mut secondary_at: Option<(usize, usize, usize, usize)> = None;
     let mut chord_at: Option<(usize, usize, usize, usize)> = None;
@@ -333,10 +339,10 @@ fn run_game(ctx: &egui::Context, board: &mut Vec<Vec<Vec<Vec<Cell>>>>, back_boar
 
     let mut win = false;
     egui::TopBottomPanel::top("top-main-panel").show(ctx, |ui| {
-        println!("HERE");
+        // println!("HERE");
         ui.horizontal(|ui| {
             let closed_cells = count_closed_cells(board);
-            if *total_mines == closed_cells {
+            if *total_mines == closed_cells && !*is_exploded {
                 *alive = false;
                 win = true;
                 ui.label(egui::RichText::new("You won!").heading());
@@ -344,7 +350,7 @@ fn run_game(ctx: &egui::Context, board: &mut Vec<Vec<Vec<Vec<Cell>>>>, back_boar
             else {
                 let mines_to_display = if *current_mines >= *total_mines { 0 } else { *total_mines - *current_mines };
                 ui.label(egui::RichText::new(format!("Mines: {}", mines_to_display)).heading());
-                if !*alive {
+                if !*alive && *is_exploded {
                     ui.label(egui::RichText::new("You lost!").heading());
                 }
             }
@@ -371,7 +377,7 @@ fn run_game(ctx: &egui::Context, board: &mut Vec<Vec<Vec<Vec<Cell>>>>, back_boar
                                                     Cell::Number(num) => egui::RichText::new(num.to_string()),
                                                     _ => egui::RichText::new(" ".to_owned()),
                                                 }
-                                            ).min_size(egui::vec2(20.0, 20.0));
+                                            ).min_size(egui::vec2(*cell_ui_size, *cell_ui_size));
                                             let btn = match elem {
                                                 Cell::Flag => if *alive || mines_positions.contains(&(fidx, sidx, tidx, idx)) { 
                                                     btn.fill(egui::Color32::WHITE) 
@@ -442,13 +448,13 @@ fn run_game(ctx: &egui::Context, board: &mut Vec<Vec<Vec<Vec<Cell>>>>, back_boar
     if *alive {
         if *inverted_clicks { (clicked_at, secondary_at) = (secondary_at, clicked_at); }
         mark_flags(board, &secondary_at, current_mines);
-        reveal_cell(board, back_board, mines_positions, &clicked_at, alive, do_spread);
-        chord_cell(board, back_board, mines_positions, &chord_at, alive, do_spread);
+        reveal_cell(board, back_board, mines_positions, &clicked_at, alive, do_spread, is_exploded);
+        chord_cell(board, back_board, mines_positions, &chord_at, alive, do_spread, is_exploded);
     }
     *hover_display = hover_at;
 }
 
-fn bottom_panel(ctx: &egui::Context, board_dimensions: &mut (usize, usize, usize, usize), mines_num: &mut u16, do_spread: &mut bool, inverted_mines: &mut bool) -> bool {
+fn bottom_panel(ctx: &egui::Context, board_dimensions: &mut (usize, usize, usize, usize), mines_num: &mut u16, do_spread: &mut bool, inverted_mines: &mut bool, mine_size: &mut f32, default_mine_size: &f32) -> bool {
     let mut restart = false;
     egui::TopBottomPanel::bottom("settings").show(ctx, |ui| {
     ui.checkbox(inverted_mines, egui::RichText::new("Click to flag").heading());
@@ -472,7 +478,7 @@ fn bottom_panel(ctx: &egui::Context, board_dimensions: &mut (usize, usize, usize
         });
         ui.horizontal(|ui| {
             ui.label("Mines: ");
-            let drag = egui::DragValue::new(mines_num).clamp_range(1..=(board_dimensions.0 * board_dimensions.1 * board_dimensions.2 * board_dimensions.3));
+            let drag = egui::DragValue::new(mines_num).clamp_range(1..=(board_dimensions.0 * board_dimensions.1 * board_dimensions.2 * board_dimensions.3 - 1));
             ui.add(drag);
             let numerator: f64 = (*mines_num).try_into().unwrap();
             let denominator: u32 = (board_dimensions.0 * board_dimensions.1 * board_dimensions.2 * board_dimensions.3).try_into().unwrap();
@@ -483,6 +489,13 @@ fn bottom_panel(ctx: &egui::Context, board_dimensions: &mut (usize, usize, usize
             restart = true;
         }
         ui.checkbox(do_spread, "Automatic spreading");
+        ui.horizontal(|ui| {
+            ui.label("Cell size: ");
+            ui.add(egui::DragValue::new(mine_size).clamp_range(5..=100));
+            if ui.button("Reset").clicked() {
+                *mine_size = *default_mine_size;
+            }
+        });
     });
     restart
 }
@@ -493,8 +506,8 @@ impl TemplateApp {
     /// Called once before the first frame.
     pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
         let mut res = Default::default();
-        let TemplateApp { ref mut board_dimensions, ref mut mines_num, ref mut mines_positions, ref mut back_board, ref mut board, current_hover: _, ref mut alive, ref mut current_mines, ref mut total_mines, .. } = res;
-        init_game(board, back_board, board_dimensions, mines_positions, alive, mines_num, current_mines, total_mines);
+        let TemplateApp { ref mut board_dimensions, ref mut mines_num, ref mut mines_positions, ref mut back_board, ref mut board, current_hover: _, ref mut alive, ref mut current_mines, ref mut total_mines, ref mut is_exploded, .. } = res;
+        init_game(board, back_board, board_dimensions, mines_positions, alive, mines_num, current_mines, total_mines, is_exploded);
         *total_mines = 10;
         *current_mines = 0;
         res
@@ -508,11 +521,13 @@ impl eframe::App for TemplateApp {
 
     /// Called each time the UI needs repainting, which may be many times per second.
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        let TemplateApp { ref mut board_dimensions, ref mut mines_num, ref mut mines_positions, ref mut back_board, ref mut board, ref mut current_hover, ref mut alive, ref mut current_mines, ref mut total_mines, ref mut spreading, ref mut inverted_mines_placing } = self;
-        let should_restart = bottom_panel(ctx, board_dimensions, mines_num, spreading, inverted_mines_placing);
+        let default_cell_size = 20.0;
+
+        let TemplateApp { ref mut board_dimensions, ref mut mines_num, ref mut mines_positions, ref mut back_board, ref mut board, ref mut current_hover, ref mut alive, ref mut current_mines, ref mut total_mines, ref mut spreading, ref mut inverted_mines_placing, ref mut is_exploded, ref mut cell_ui_size } = self;
+        let should_restart = bottom_panel(ctx, board_dimensions, mines_num, spreading, inverted_mines_placing, cell_ui_size, &default_cell_size);
         if should_restart {
-            init_game(board, back_board, board_dimensions, mines_positions, alive, mines_num, total_mines, current_mines);
+            init_game(board, back_board, board_dimensions, mines_positions, alive, mines_num, total_mines, current_mines, is_exploded);
         }
-        run_game(ctx, board, back_board, mines_positions, current_hover, alive, total_mines, current_mines, spreading, inverted_mines_placing);
+        run_game(ctx, board, back_board, mines_positions, current_hover, alive, total_mines, current_mines, spreading, inverted_mines_placing, is_exploded, cell_ui_size);
     }
 }
